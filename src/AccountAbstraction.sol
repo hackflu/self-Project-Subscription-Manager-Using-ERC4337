@@ -37,6 +37,11 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
     error AccountAbsctraction__SubscriptionIsActive();
     error AccountAbstraction__SubcriptionIsInvalid(uint256);
     error AccountAbstraction__CheckUpKeepNotNeeded();
+    error AccountAbstraction__BeneficiaryIsZero();
+    error AccountAbstraction__TokenAddrIsZero();
+    error AccountAbstraction__AmountIsZero();
+    error AccountAbstraction__ExecuteTimeIsZero();
+    error AccountAbstraction__CannotBeLessThaExecuteTime();
 
     /*//////////////////////////////////////////////////////////////
                             TYPE DECLERATION
@@ -116,21 +121,21 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
         uint256 intervalOf
     ) external requireByEntryPointOrOwner returns (uint256 subId) {
         if(beneficiary == address(0)){
-            revert AccountAbstraction__ValidationFailed();
+            revert AccountAbstraction__BeneficiaryIsZero();
         }
         if(token == address(0)){
-            revert AccountAbstraction__ValidationFailed();
+            revert AccountAbstraction__TokenAddrIsZero();
         }
         if(amount == 0){
-            revert AccountAbstraction__ValidationFailed();
+            revert AccountAbstraction__AmountIsZero();
         }
         if(executeTime == 0){
-            revert AccountAbstraction__ValidationFailed();
+            revert AccountAbstraction__ExecuteTimeIsZero();
         }
-        if(intervalOf == 0){
-            revert AccountAbstraction__ValidationFailed();
+        if(intervalOf < executeTime){
+            revert AccountAbstraction__CannotBeLessThaExecuteTime();
         }
-        subId++;
+        subId = totalSubscription + 1;
         totalSubscription++;
         SubscriptionManager storage subscriptionManager = trackSubscription[subId];
         subscriptionManager.beneficiary = beneficiary;
@@ -206,6 +211,10 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
                               OWNER CONTROL
     //////////////////////////////////////////////////////////////*/
     function cancelSubscription(uint256 subId) external requireByEntryPointOrOwner {
+        if(subId > totalSubscription || subId == 0){
+            revert AccountAbstraction__SubcriptionIsInvalid(subId);
+        }
+        
         if (trackSubscription[subId].active != true) {
             revert AccountAbstraction__SubcriptionIsInvalid(subId);
         }
