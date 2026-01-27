@@ -6,5 +6,6 @@ remappings = [
     "forge-std/=lib/forge-std/src/",
     "@account-abstraction/=lib/account-abstraction/",
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+    '@chainlink/contracts/=lib/chainlink-brownie-contracts/contracts/'
 ]
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

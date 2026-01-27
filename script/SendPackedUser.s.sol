@@ -6,7 +6,7 @@ import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint
 import {INonceManager} from "@account-abstraction/contracts/interfaces/INonceManager.sol";
 import {IERC20} from "forge-std/interfaces/IERC20.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {Script,console} from "forge-std/Script.sol";
+import {Script, console} from "forge-std/Script.sol";
 import {constantForContract} from "./HelperConfig.s.sol";
 import {HelperConfig} from "./HelperConfig.s.sol";
 
@@ -20,7 +20,7 @@ contract SendPackedUser is Script, constantForContract {
     ) public view returns (PackedUserOperation memory) {
         // nonce
         uint256 nonce = INonceManager(config.entryPoint).getNonce(accountAbstraction, 0);
-        PackedUserOperation memory userOp = _generateAndReturnPackedUserOperation(accountAbstraction, nonce, callData);
+        PackedUserOperation memory userOp = generateAndReturnPackedUserOperation(accountAbstraction, nonce, callData);
         bytes32 digest = IEntryPoint(config.entryPoint).getUserOpHash(userOp);
         console.logBytes32(digest);
         uint8 v;
@@ -35,8 +35,8 @@ contract SendPackedUser is Script, constantForContract {
         return userOp;
     }
 
-    function _generateAndReturnPackedUserOperation(address sender, uint256 nonce, bytes memory callData)
-        internal
+    function generateAndReturnPackedUserOperation(address sender, uint256 nonce, bytes memory callData)
+        public
         pure
         returns (PackedUserOperation memory)
     {

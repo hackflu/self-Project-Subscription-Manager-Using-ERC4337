@@ -10,7 +10,6 @@ abstract contract constantForContract {
     address constant BURNER_WALLET = 0x0E6A032eD498633a1FB24b3FA96bF99bBBE4B754;
     address constant ANVIL_DEFAULT_ACCOUNT = 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266;
     uint256 ANVIL_DEFAULT_KEY = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
-
 }
 
 contract HelperConfig is Script, constantForContract {

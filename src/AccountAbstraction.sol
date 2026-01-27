@@ -7,6 +7,10 @@ import {SIG_VALIDATION_FAILED, SIG_VALIDATION_SUCCESS} from "@account-abstractio
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {
+    AutomationCompatibleInterface
+} from "@chainlink/contracts/src/v0.8/automation/interfaces/AutomationCompatibleInterface.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 /**
  * @title  SubscriptionManager
@@ -21,7 +25,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
  * 3. An off-chain automation (Keeper/Bundler) triggers the execution
  * when `block.timestamp >= lastPayment + interval`.
  */
-contract AccountAbstraction is IAccount, Ownable {
+contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface {
     /*//////////////////////////////////////////////////////////////
                                   ERROR
     //////////////////////////////////////////////////////////////*/
@@ -30,11 +34,28 @@ contract AccountAbstraction is IAccount, Ownable {
     error AccountAbstraction__NonceIsOutOfMax();
     error AccountAbstraction__NotFromEntryPointOrOwner();
     error AccountAbstraction__TransferFailed(bytes);
+    error AccountAbsctraction__SubscriptionIsActive();
+    error AccountAbstraction__SubcriptionIsInvalid(uint256);
 
+    /*//////////////////////////////////////////////////////////////
+                            TYPE DECLERATION
+    //////////////////////////////////////////////////////////////*/
+    struct SubscriptionManager {
+        address beneficiary; // Who receives the funds (the merchant/service)
+        address token; // The ERC20 token used for payment (USDC, DAI, etc.)
+        uint256 amount; // Amount to be paid per period
+        uint256 intervalOf; // Calculated timestamp for the next window
+        uint256 executeTime; // When the subscription actually begins
+        bool active; // Is the subscription currently live?
+        uint256 subId; // to tack the subId
+    }
     /*//////////////////////////////////////////////////////////////
                              STATE VARIABLES
     //////////////////////////////////////////////////////////////*/
     IEntryPoint public immutable i_entryPoint;
+    mapping(uint256 => SubscriptionManager) public trackSubscription;
+    uint256 public totalSubscription;
+    uint256 public constant BATCH_SIZE = 10;
 
     /*//////////////////////////////////////////////////////////////
                                CONSTRUCTOR
@@ -43,6 +64,13 @@ contract AccountAbstraction is IAccount, Ownable {
         i_entryPoint = IEntryPoint(_entryPoint);
     }
 
+    /*//////////////////////////////////////////////////////////////
+                                 EVENTS
+    //////////////////////////////////////////////////////////////*/
+    event SubscriptionCreated(address indexed, uint256, uint256, uint256);
+    event SubscriptionCancelled(bool, uint256);
+    event SubscriptionFailed(uint256, bool);
+    event SubscriptionExecuted(uint256, bool);
     /*//////////////////////////////////////////////////////////////
                                 MODIFIERS
     //////////////////////////////////////////////////////////////*/
@@ -54,7 +82,7 @@ contract AccountAbstraction is IAccount, Ownable {
     }
 
     modifier requireByEntryPointOrOwner() {
-        if (msg.sender != address(i_entryPoint) || msg.sender != owner()) {
+        if (msg.sender != address(i_entryPoint) && msg.sender != owner()) {
             revert AccountAbstraction__NotFromEntryPointOrOwner();
         }
         _;
@@ -79,12 +107,95 @@ contract AccountAbstraction is IAccount, Ownable {
         return 0;
     }
 
+    function createSubscription(
+        address beneficiary,
+        address token,
+        uint256 amount,
+        uint256 executeTime,
+        uint256 intervalOf
+    ) external requireByEntryPointOrOwner returns (uint256 subId) {
+        subId++;
+        totalSubscription++;
+        SubscriptionManager storage subscriptionManager = trackSubscription[subId];
+        subscriptionManager.beneficiary = beneficiary;
+        subscriptionManager.token = token;
+        subscriptionManager.amount = amount;
+        subscriptionManager.intervalOf = intervalOf;
+        subscriptionManager.executeTime = block.timestamp + executeTime;
+        subscriptionManager.subId = subId; // Assign the current subId to the struct field
+
+        subscriptionManager.active = true;
+        emit SubscriptionCreated(token, subId, amount, executeTime);
+    }
+
+    /**
+     * @notice this function is used to execute other task (Note : not used for subscription)
+     * @param dest the destination address
+     * @param _amount the amount to send
+     * @param functionCall function to execute on the destination address
+     */
     function execute(address dest, uint256 _amount, bytes calldata functionCall) public requireByEntryPointOrOwner {
         // which mena the address will have the fallback function and receive function
         (bool success, bytes memory data) = dest.call{value: _amount}(functionCall);
         if (!success) {
             revert AccountAbstraction__TransferFailed(data);
         }
+    }
+
+    function checkUpkeep(
+        bytes calldata /*checkData*/
+    )
+        external
+        view
+        override
+        returns (bool upkeepNeeded, bytes memory performData)
+    {
+        uint256[] memory transactionBatch = new uint256[](BATCH_SIZE);
+        uint256 count = 0;
+        for (uint256 i = 1; i <= totalSubscription; i++) {
+            if (trackSubscription[i].active == true) {
+                if (block.timestamp >= trackSubscription[i].executeTime) {
+                    transactionBatch[count] = i;
+                    count++;
+                }
+            }
+        }
+        if (count == 0) {
+            return (false, "0x0");
+        }
+        uint256[] memory result = new uint256[](count);
+        for (uint256 j = 0; j < count; j++) {
+            result[j] = transactionBatch[j];
+        }
+        upkeepNeeded = true;
+        performData = abi.encode(result);
+    }
+
+    function performUpkeep(bytes calldata performData) external override {
+        uint256[] memory subscriptionIds = abi.decode(performData, (uint256[]));
+        for (uint256 i = 0; i < subscriptionIds.length; i++) {
+            SubscriptionManager memory sub = trackSubscription[i];
+            bytes memory functionCall = _createFunctionCall(subscriptionIds[i]);
+            (bool success,) = sub.token.call{value: 0}(functionCall);
+            if (success) {
+                sub.executeTime = block.timestamp + sub.intervalOf;
+                emit SubscriptionExecuted(sub.subId, true);
+            } else {
+                emit SubscriptionFailed(sub.subId, false);
+            }
+        }
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                              OWNER CONTROL
+    //////////////////////////////////////////////////////////////*/
+    function cancelSubscription(uint256 subId) external requireByEntryPointOrOwner {
+        if (trackSubscription[subId].active != true) {
+            revert AccountAbstraction__SubcriptionIsInvalid(subId);
+        }
+        SubscriptionManager storage sub = trackSubscription[subId];
+        sub.active = false;
+        emit SubscriptionCancelled(false, subId);
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -128,5 +239,11 @@ contract AccountAbstraction is IAccount, Ownable {
             (bool success,) = payable(msg.sender).call{value: missingAccountFunds}("");
             // Ignore failure (its EntryPoint's job to verify, not account.)
         }
+    }
+
+    function _createFunctionCall(uint256 subId) internal view returns (bytes memory functionCall) {
+        address recipitent = trackSubscription[subId].beneficiary;
+        uint256 amount = trackSubscription[subId].amount;
+        functionCall = abi.encodeWithSelector(IERC20.transfer.selector, recipitent, amount);
     }
 }
