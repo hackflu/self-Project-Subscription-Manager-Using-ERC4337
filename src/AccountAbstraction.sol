@@ -36,6 +36,7 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
     error AccountAbstraction__TransferFailed(bytes);
     error AccountAbsctraction__SubscriptionIsActive();
     error AccountAbstraction__SubcriptionIsInvalid(uint256);
+    error AccountAbstraction__CheckUpKeepNotNeeded();
 
     /*//////////////////////////////////////////////////////////////
                             TYPE DECLERATION
@@ -114,6 +115,21 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
         uint256 executeTime,
         uint256 intervalOf
     ) external requireByEntryPointOrOwner returns (uint256 subId) {
+        if(beneficiary == address(0)){
+            revert AccountAbstraction__ValidationFailed();
+        }
+        if(token == address(0)){
+            revert AccountAbstraction__ValidationFailed();
+        }
+        if(amount == 0){
+            revert AccountAbstraction__ValidationFailed();
+        }
+        if(executeTime == 0){
+            revert AccountAbstraction__ValidationFailed();
+        }
+        if(intervalOf == 0){
+            revert AccountAbstraction__ValidationFailed();
+        }
         subId++;
         totalSubscription++;
         SubscriptionManager storage subscriptionManager = trackSubscription[subId];
@@ -135,7 +151,7 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
      * @param functionCall function to execute on the destination address
      */
     function execute(address dest, uint256 _amount, bytes calldata functionCall) public requireByEntryPointOrOwner {
-        // which mena the address will have the fallback function and receive function
+        // which mean the address will have the fallback function and receive function
         (bool success, bytes memory data) = dest.call{value: _amount}(functionCall);
         if (!success) {
             revert AccountAbstraction__TransferFailed(data);
@@ -145,7 +161,7 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
     function checkUpkeep(
         bytes calldata /*checkData*/
     )
-        external
+        public
         view
         override
         returns (bool upkeepNeeded, bytes memory performData)
@@ -174,14 +190,14 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
     function performUpkeep(bytes calldata performData) external override {
         uint256[] memory subscriptionIds = abi.decode(performData, (uint256[]));
         for (uint256 i = 0; i < subscriptionIds.length; i++) {
-            SubscriptionManager memory sub = trackSubscription[i];
+            SubscriptionManager storage subscription = trackSubscription[subscriptionIds[i]];
             bytes memory functionCall = _createFunctionCall(subscriptionIds[i]);
-            (bool success,) = sub.token.call{value: 0}(functionCall);
+            (bool success,) = subscription.token.call{value: 0}(functionCall);
             if (success) {
-                sub.executeTime = block.timestamp + sub.intervalOf;
-                emit SubscriptionExecuted(sub.subId, true);
+                subscription.executeTime = block.timestamp + subscription.intervalOf;
+                emit SubscriptionExecuted(subscription.subId, true);
             } else {
-                emit SubscriptionFailed(sub.subId, false);
+                emit SubscriptionFailed(subscription.subId, false);
             }
         }
     }

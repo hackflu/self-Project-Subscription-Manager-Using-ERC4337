@@ -19,7 +19,7 @@ contract DeployScript is Script {
         vm.startBroadcast(config.account);
         // if we want we can remove this
         accountAbstraction = new AccountAbstraction(config.entryPoint);
-        accountAbstraction.transferOwnership(config.account);
+        // accountAbstraction.transferOwnership(config.account);
         vm.stopBroadcast();
         return (helperConfig, accountAbstraction);
     }
