@@ -220,7 +220,7 @@ contract AccountAbstraction is IAccount, Ownable, AutomationCompatibleInterface 
         }
         SubscriptionManager storage sub = trackSubscription[subId];
         sub.active = false;
-        emit SubscriptionCancelled(false, subId);
+        emit SubscriptionCancelled(true, subId);
     }
 
     /*//////////////////////////////////////////////////////////////

@@ -186,7 +186,7 @@ contract AccountAbstractionTest is Test {
     //////////////////////////////////////////////////////////////*/
 
     /*//////////////////////////////////////////////////////////////
-                         TEST CREATESUBSCRIPTION
+                         CREATESUBSCRIPTION
     //////////////////////////////////////////////////////////////*/
     function testCreateSubscriptionByEntryPoint() public {
         // Arrange
@@ -283,6 +283,65 @@ contract AccountAbstractionTest is Test {
         accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
         vm.stopPrank();
     }
+    function testCreateSubscriptionBeneficiaryIsZero() public {
+        // Arrange
+        address beneficiary = address(0);
+        address token = address(mockToken);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 30 days;
+        vm.prank(networkConfig.entryPoint);
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__BeneficiaryIsZero.selector));
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
+
+    function testCreateSubscriptionTokenAddrIsZero() public {
+        // Arrange
+        address beneficiary = address(0x123);
+        address token = address(0);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 30 days;
+        vm.prank(networkConfig.entryPoint);
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__TokenAddrIsZero.selector));
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
+
+    function testCreateSubscriptionAmountIsZero() public {
+        // Arrange
+        address beneficiary = address(0x123);
+        address token = address(mockToken);
+        uint256 amount = 0;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 30 days;
+        vm.prank(networkConfig.entryPoint);
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__AmountIsZero.selector));
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
+
+    function testCreateSubscriptionExecutionIsZero() public {
+        // Arrange
+        address beneficiary = address(0x123);
+        address token = address(mockToken);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 0;
+        uint256 intervalOf = 30 days;
+        vm.prank(networkConfig.entryPoint);
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__ExecuteTimeIsZero.selector));
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
+
+    function testCreateSubscriptionIntervalOfCheck() public {
+        // Arrange
+        address beneficiary = address(0x123);
+        address token = address(mockToken);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 0;
+        vm.prank(networkConfig.entryPoint);
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__CannotBeLessThaExecuteTime.selector));
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
 
     modifier requireToCreateSubscription(address owner) {
         // Arrange
@@ -314,7 +373,7 @@ contract AccountAbstractionTest is Test {
         // Act
         vm.prank(accountAbstraction.owner());
         vm.expectEmit(false, false, false, true, address(accountAbstraction));
-        emit AccountAbstraction.SubscriptionCancelled(false, 1);
+        emit AccountAbstraction.SubscriptionCancelled(true, 1);
         // Assert
         accountAbstraction.cancelSubscription(1);
         (,,,,, bool active,) = accountAbstraction.trackSubscription(1);
@@ -331,6 +390,15 @@ contract AccountAbstractionTest is Test {
         );
         accountAbstraction.cancelSubscription(1);
         vm.stopPrank();
+    }
+
+    function testCancelSubscriptionWithSubIdZero() public {
+        // Act
+        vm.startPrank(accountAbstraction.owner());
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__SubcriptionIsInvalid.selector,0));
+        accountAbstraction.cancelSubscription(0);
+        vm.stopPrank();
+        // Assert
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -394,5 +462,133 @@ contract AccountAbstractionTest is Test {
         assertEq(upkeepNeeded, true);
     }
 
-    function test
+    /*//////////////////////////////////////////////////////////////
+                          STATE TRANSITION TEST
+    //////////////////////////////////////////////////////////////*/
+    /**
+     * create subscription
+     * execute it
+     * reExecute it
+     */
+    function testCreateSubscriptionWithExecute() public requireToCreateSubscription(accountAbstraction.owner()) requireToCreateSubscription(accountAbstraction.owner()){
+        mockToken.mint(address(accountAbstraction), AMOUNT + AMOUNT);
+        // Arrange
+        vm.warp(block.timestamp + 90 days);
+        vm.roll(block.number + 1);
+        (bool upkeepNeeded, bytes memory performData) = accountAbstraction.checkUpkeep("");
+        assertEq(upkeepNeeded, true);   
+        console.log("tran : ",accountAbstraction.totalSubscription());
+        
+        uint256[] memory transactionSubIds = abi.decode(performData , (uint256[]));
+        for(uint256 i = 0; i < transactionSubIds.length;i++){
+            console.log("data :" ,transactionSubIds[i]);
+        }
+        performData = abi.encode(transactionSubIds);
+        // Act
+        vm.prank(accountAbstraction.owner());
+        vm.expectEmit(false, false, false, true , address(accountAbstraction));
+        emit AccountAbstraction.SubscriptionExecuted(1, true);
+        accountAbstraction.performUpkeep(performData);
+        // Assert
+    }
+
+    function testCreateSubscriptionThenCancelAndExecute() public requireToCreateSubscription(accountAbstraction.owner()){
+        // cancelled the subscription
+        vm.prank(accountAbstraction.owner());
+        accountAbstraction.cancelSubscription(1);
+
+        // check the upkeep
+        vm.warp(block.timestamp + 90 days);
+        vm.roll(block.number + 1);
+        (bool upkeepNeeded, ) = accountAbstraction.checkUpkeep("");
+        assertEq(upkeepNeeded, false);
+    }
+
+    function testCreateSubscriptionAndCancelTwice() public requireToCreateSubscription(accountAbstraction.owner()) {
+        // cancelled the subscription
+        vm.prank(accountAbstraction.owner());
+        accountAbstraction.cancelSubscription(1);
+
+        // Cancel Again and check
+        vm.prank(accountAbstraction.owner());
+        vm.expectRevert(abi.encodeWithSelector(AccountAbstraction.AccountAbstraction__SubcriptionIsInvalid.selector, 1));
+        accountAbstraction.cancelSubscription(1);
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            GAS & PERFORMANCE
+    //////////////////////////////////////////////////////////////*/
+    /**
+     * @notice to create single subscription flow and measure the gas
+     */
+    function testGasCostPriceForSingleSubscription() public  {
+        mockToken.mint(address(accountAbstraction), AMOUNT);
+        // create subscription
+        address beneficiary = makeAddr("beneficiary");
+        address token = address(mockToken);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 30 days;
+        vm.txGasPrice(20 gwei);
+
+        uint256 gasStart = gasleft();
+        vm.prank(accountAbstraction.owner());
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+
+        // use checkUpkeep
+        vm.warp(block.timestamp + 30 days);
+        vm.roll(block.number + 1);
+        (bool upkeepNeeded, bytes memory performData) = accountAbstraction.checkUpkeep("");
+        assertEq(upkeepNeeded, true);
+
+        // performUpkeep
+        accountAbstraction.performUpkeep(performData);
+        uint256 gasEnd = gasleft();
+
+        uint256 gasUsed = gasStart - gasEnd;
+        uint256 costInEth = gasUsed * 20 gwei;
+
+        console.log("Cost in eth : ",costInEth);
+    }
+
+
+    /*//////////////////////////////////////////////////////////////
+                             BATCH EXECUTION
+    //////////////////////////////////////////////////////////////*/
+    function testBatchExecutionOfSubscriptions() public {
+
+        // Arrange
+        mockToken.mint(address(accountAbstraction), AMOUNT * 10);
+        address token = address(mockToken);
+        uint256 amount = AMOUNT;
+        uint256 executeTime = 1 days;
+        uint256 intervalOf = 30 days;
+
+        for(uint256 i = 1; i <= 10;i++){
+            vm.prank(accountAbstraction.owner());
+            _createSubscription(address(uint160(i)), token, amount, executeTime, intervalOf);
+        }
+
+        // checuUpkeep
+        vm.warp(block.timestamp + 2 days);
+
+        (bool upkeepNeeded , bytes memory performData) = accountAbstraction.checkUpkeep("");
+
+        // performUpkeep
+        // for(uint256 i = 1; i <= 10;i++){
+        
+        // }
+        // vm.expectEmit(false, false, false, true , address(accountAbstraction));
+        // emit AccountAbstraction.SubscriptionExecuted(1, true);
+        accountAbstraction.performUpkeep(performData);
+        assertEq(upkeepNeeded, true);
+
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                            INTERNAL FUNCTION
+    //////////////////////////////////////////////////////////////*/
+    function _createSubscription(address beneficiary, address token, uint256 amount, uint256 executeTime, uint256 intervalOf) public {
+        accountAbstraction.createSubscription(beneficiary, token, amount, executeTime, intervalOf);
+    }
 }
