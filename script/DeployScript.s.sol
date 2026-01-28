@@ -15,10 +15,8 @@ contract DeployScript is Script {
     function deployMinimalAccount() public returns (HelperConfig, AccountAbstraction) {
         HelperConfig helperConfig = new HelperConfig();
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
-
         vm.startBroadcast(config.account);
         accountAbstraction = new AccountAbstraction(config.entryPoint);
-        // accountAbstraction.transferOwnership(config.account);
         vm.stopBroadcast();
         return (helperConfig, accountAbstraction);
     }
