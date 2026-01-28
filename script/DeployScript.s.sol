@@ -17,7 +17,6 @@ contract DeployScript is Script {
         HelperConfig.NetworkConfig memory config = helperConfig.getConfig();
 
         vm.startBroadcast(config.account);
-        // if we want we can remove this
         accountAbstraction = new AccountAbstraction(config.entryPoint);
         // accountAbstraction.transferOwnership(config.account);
         vm.stopBroadcast();
